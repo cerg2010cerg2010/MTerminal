@@ -69,3 +69,7 @@ fastlane/test_output
 
 .DS_Store
 *.deb
+
+# Theos
+.theos/
+packages/
