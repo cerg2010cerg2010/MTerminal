@@ -85,6 +85,32 @@ static UIBarButtonItem *toolbarItem(NSString *symbol, NSString *title, id target
         : [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStylePlain target:target action:action];
     return [item autorelease];
 }
+// Ctrl needs to tell a tap from a long press, which UIBarButtonItem can't do, so
+// it is backed by a real button. Returns it autoreleased.
+static UIButton *ctrlButtonWithTarget(id target, SEL tap, SEL hold) {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    UIImage *image = MTSystemImage(@"chevron.up");
+    if (image) {
+        [button setImage:image forState:UIControlStateNormal];
+    } else {
+        [button setTitle:@"Ctrl" forState:UIControlStateNormal];
+    }
+    [button sizeToFit];
+    CGRect frame = button.frame;
+    if (frame.size.width < 44) {
+        frame.size.width = 44;
+    }
+    frame.size.height = 32;
+    button.frame = frame;
+    [button addTarget:target action:tap forControlEvents:UIControlEventTouchUpInside];
+    // cancelsTouchesInView defaults to YES, so recognising the hold suppresses
+    // the button's own tap — the two actions can't both fire.
+    UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc] initWithTarget:target action:hold];
+    press.minimumPressDuration = 0.4;
+    [button addGestureRecognizer:press];
+    [press release];
+    return button;
+}
 static NSString *getTitle(VT100 *terminal) {
     CFStringRef title = terminal.title;
     if (title) {
@@ -105,6 +131,11 @@ static NSString *getTitle(VT100 *terminal) {
 - (BOOL)canBecomeFirstResponder {
     return YES;
 }
+@end
+
+@interface MTController ()
+- (void)updateCtrlButton;
+- (void)toggleCtrlSticky:(UILongPressGestureRecognizer *)gesture;
 @end
 
 @implementation MTController
@@ -463,17 +494,19 @@ static NSString *getTitle(VT100 *terminal) {
     [activeTerminal sendKey:kVT100KeyBackArrow];
 }
 - (void)insertText:(NSString *)text {
+    BOOL ctrl = ctrlLock || ctrlSticky;
     if (text.length == 1) {
         unichar c = [text characterAtIndex:0];
         if (c < 0x80) {
-            [activeTerminal sendKey:((c == 0x20 || c >= 0x40) && ctrlLock) ? c &0x1f : c]; text = nil;
+            [activeTerminal sendKey:((c == 0x20 || c >= 0x40) && ctrl) ? c &0x1f : c]; text = nil;
         }
     }
     if (text) {
         [activeTerminal sendString:(CFStringRef)text];
     }
-	if (ctrlLock) {
+	if (ctrlLock) { // the held modifier survives, the one-shot does not
 		ctrlLock = NO;
+		[self updateCtrlButton];
 	}
 }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -760,7 +793,8 @@ static NSString *getTitle(VT100 *terminal) {
                 return;
             }
             case kTapZoneCenter:
-                ctrlLock = NO;
+                ctrlLock = NO; // the held modifier is only cleared from the button
+                [self updateCtrlButton];
             default:
                 return;
         }
@@ -912,7 +946,9 @@ static NSString *getTitle(VT100 *terminal) {
     UIBarButtonItem *upItem = toolbarItem(@"arrow.up", @"↑", self, @selector(up:));
     UIBarButtonItem *downItem = toolbarItem(@"arrow.down", @"↓", self, @selector(down:));
     UIBarButtonItem *tabItem = toolbarItem(@"arrow.right.to.line", @"⇥", self, @selector(insertTab:));
-	UIBarButtonItem *ctrlItem = toolbarItem(@"chevron.up", @"Ctrl", self, @selector(toggleCtrlLock:));
+	[ctrlButton release];
+	ctrlButton = [ctrlButtonWithTarget(self, @selector(toggleCtrlLock:), @selector(toggleCtrlSticky:)) retain];
+	UIBarButtonItem *ctrlItem = [[[UIBarButtonItem alloc] initWithCustomView:ctrlButton] autorelease];
 	UIBarButtonItem *pasteItem = toolbarItem(@"paperclip", @"Paste", self, @selector(paste:));
 	UIBarButtonItem *settingsItem = toolbarItem(@"gearshape", @"Settings", self, @selector(settings:));
 	UIBarButtonItem *spaceItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil] autorelease];
@@ -922,6 +958,7 @@ static NSString *getTitle(VT100 *terminal) {
     for (UIBarButtonItem *buttonItem in toolbar.items) {
         buttonItem.tintColor = MTLabelColor();
     }
+    [self updateCtrlButton]; // custom views don't pick up the item's tint
     [toolbar sizeToFit];
     return toolbar;
 }
@@ -945,8 +982,27 @@ static NSString *getTitle(VT100 *terminal) {
     if (str != nil)
 	    [activeTerminal sendString:(CFStringRef)str];
 }
-- (void)toggleCtrlLock:(UIBarButtonItem *)sender {
-	ctrlLock = !ctrlLock;
+// Tap: arm Ctrl for the next key only. Tapping while held releases the hold.
+- (void)toggleCtrlLock:(id)sender {
+	if (ctrlSticky) {
+		ctrlSticky = NO;
+		ctrlLock = NO;
+	} else {
+		ctrlLock = !ctrlLock;
+	}
+	[self updateCtrlButton];
+}
+// Long press: hold Ctrl down until it is toggled off again.
+- (void)toggleCtrlSticky:(UILongPressGestureRecognizer *)gesture {
+	if (gesture.state != UIGestureRecognizerStateBegan) {
+		return;
+	}
+	ctrlSticky = !ctrlSticky;
+	ctrlLock = NO;
+	[self updateCtrlButton];
+}
+- (void)updateCtrlButton {
+	ctrlButton.tintColor = ctrlSticky ? [UIColor systemRedColor] : ctrlLock ? [UIColor systemBlueColor] : MTLabelColor();
 }
 - (void)openSettings {
     MTSettingsController *settingsController = [[MTSettingsController alloc] init];
@@ -994,6 +1050,7 @@ static NSString *getTitle(VT100 *terminal) {
     if (bellSound) {
         AudioServicesDisposeSystemSoundID(bellSoundID);
     }
+    [ctrlButton release];
     [repeatTimer release];
     [screenSection release];
     [allTerminals release];

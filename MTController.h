@@ -20,7 +20,9 @@
     SystemSoundID bellSoundID;
     BOOL bellSound;
     BOOL darkBG;
-    BOOL ctrlLock;
+    BOOL ctrlLock;   // one-shot: applies to the next key, then clears
+    BOOL ctrlSticky; // held: applies until toggled off again
+    UIButton *ctrlButton;
     NSTimer *repeatTimer;
     NSIndexSet *screenSection;
     NSMutableArray *allTerminals;
