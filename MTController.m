@@ -1,4 +1,5 @@
 #include "MTController.h"
+#include "MTCompat.h"
 #include "MTRowView.h"
 #include "MTScratchpad.h"
 #import "VT100.h"
@@ -75,6 +76,14 @@ static enum {
     : right                             ? kTapZoneRight
     : (origin.x < margin)               ? kTapZoneLeft
     : kTapZoneCenter;
+}
+// SF Symbols need iOS 13; on older systems fall back to a titled button.
+static UIBarButtonItem *toolbarItem(NSString *symbol, NSString *title, id target, SEL action) {
+    UIImage *image = MTSystemImage(symbol);
+    UIBarButtonItem *item = image
+        ? [[UIBarButtonItem alloc] initWithImage:image style:UIBarButtonItemStylePlain target:target action:action]
+        : [[UIBarButtonItem alloc] initWithTitle:title style:UIBarButtonItemStylePlain target:target action:action];
+    return [item autorelease];
 }
 static NSString *getTitle(VT100 *terminal) {
     CFStringRef title = terminal.title;
@@ -896,22 +905,22 @@ static NSString *getTitle(VT100 *terminal) {
 - (UIView *)inputAccessoryView {
     UIToolbar *toolbar = [[[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, [[UIScreen mainScreen] bounds].size.width, 50)] autorelease];
     toolbar.translucent = NO;
-    toolbar.barTintColor = [UIColor systemBackgroundColor];
+    toolbar.barTintColor = MTSystemBackgroundColor();
 
-    UIBarButtonItem *leftItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.backward"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(left:)] autorelease];
-    UIBarButtonItem *rightItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.forward"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(right:)] autorelease];
-    UIBarButtonItem *upItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.up"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(up:)] autorelease];
-    UIBarButtonItem *downItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.down"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(down:)] autorelease];
-    UIBarButtonItem *tabItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.right.to.line"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(insertTab:)] autorelease];
-	UIBarButtonItem *ctrlItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"chevron.up"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(toggleCtrlLock:)] autorelease];
-	UIBarButtonItem *pasteItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"paperclip"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(paste:)] autorelease];
-	UIBarButtonItem *settingsItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"gearshape"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(settings:)] autorelease];
+    UIBarButtonItem *leftItem = toolbarItem(@"arrow.backward", @"←", self, @selector(left:));
+    UIBarButtonItem *rightItem = toolbarItem(@"arrow.forward", @"→", self, @selector(right:));
+    UIBarButtonItem *upItem = toolbarItem(@"arrow.up", @"↑", self, @selector(up:));
+    UIBarButtonItem *downItem = toolbarItem(@"arrow.down", @"↓", self, @selector(down:));
+    UIBarButtonItem *tabItem = toolbarItem(@"arrow.right.to.line", @"⇥", self, @selector(insertTab:));
+	UIBarButtonItem *ctrlItem = toolbarItem(@"chevron.up", @"Ctrl", self, @selector(toggleCtrlLock:));
+	UIBarButtonItem *pasteItem = toolbarItem(@"paperclip", @"Paste", self, @selector(paste:));
+	UIBarButtonItem *settingsItem = toolbarItem(@"gearshape", @"Settings", self, @selector(settings:));
 	UIBarButtonItem *spaceItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil] autorelease];
 
     toolbar.items = [NSArray arrayWithObjects:settingsItem, pasteItem, ctrlItem, tabItem, spaceItem, spaceItem, spaceItem, leftItem, rightItem, upItem, downItem, nil];
 
     for (UIBarButtonItem *buttonItem in toolbar.items) {
-        buttonItem.tintColor = [UIColor labelColor];
+        buttonItem.tintColor = MTLabelColor();
     }
     [toolbar sizeToFit];
     return toolbar;
@@ -943,13 +952,16 @@ static NSString *getTitle(VT100 *terminal) {
     MTSettingsController *settingsController = [[MTSettingsController alloc] init];
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:settingsController];
     [settingsController release];
+    // Pin the style rather than taking the default, which is fullscreen on
+    // iOS 12 but an inset sheet from iOS 13 on.
+    navigationController.modalPresentationStyle = UIModalPresentationFormSheet;
     [self presentViewController:navigationController animated:YES completion:nil];
     [navigationController release];
 }
 - (void)settings:(UIBarButtonItem *)sender {
     [self openSettings];
 }
-- (UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction configurationForMenuAtLocation:(CGPoint)location {
+- (UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction configurationForMenuAtLocation:(CGPoint)location API_AVAILABLE(ios(13.0)) {
     UIContextMenuConfiguration *config = [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu* _Nullable(NSArray<UIMenuElement*>* _Nonnull suggestedActions) {
        	UIAction *settings = [UIAction actionWithTitle:@"Settings" image:[UIImage systemImageNamed:@"gearshape.fill"] identifier:nil handler:^(__kindof UIAction *_Nonnull action) {
             [self openSettings];
@@ -960,7 +972,7 @@ static NSString *getTitle(VT100 *terminal) {
     }];
     return config;
 }
-- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction previewForHighlightingMenuWithConfiguration:(UIContextMenuConfiguration *)configuration {
+- (UITargetedPreview *)contextMenuInteraction:(UIContextMenuInteraction *)interaction previewForHighlightingMenuWithConfiguration:(UIContextMenuConfiguration *)configuration API_AVAILABLE(ios(13.0)) {
     UITableView *tableView = (UITableView *)self.view;
 	UITableViewCell *cell = [tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
 	

@@ -1,6 +1,8 @@
-DEPLOYMENT_TARGET = 14.0
+DEPLOYMENT_TARGET = 12.0
 
-ARCHS = arm64 arm64e
+# arm64 only: the current toolchain can't emit the old-ABI arm64e needed for
+# iOS < 14, and arm64e devices run the arm64 slice fine.
+ARCHS = arm64
 TARGET = iphone:clang:latest:$(DEPLOYMENT_TARGET)
 SYSROOT = $(THEOS)/sdks/iPhoneOS14.5.sdk
 INSTALL_TARGET_PROCESSES = MTerminal

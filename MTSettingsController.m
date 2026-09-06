@@ -1,4 +1,5 @@
 #import "MTSettingsController.h"
+#import "MTCompat.h"
 
 @import SafariServices;
 
@@ -6,7 +7,29 @@ NSUserDefaults *defaults;
 
 @interface MTSettingsController ()
 @property (nonatomic, strong) UITableView *table;
+- (void)sendSetting:(NSString *)key value:(NSString *)value;
+- (void)applyFontName:(NSString *)name;
+- (void)presentHexColorEntry;
+- (void)dismissSettings;
+- (UIColor *)colorFromHexString:(NSString *)hexString;
+- (NSString *)hexStringFromColor:(UIColor *)color;
 @end
+
+// iOS 13 gained UIFontPickerViewController. This is the fallback for iOS 12.
+@interface MTFontListController : UITableViewController {
+    NSArray *families;
+    MTSettingsController *owner; // not retained; it presents and outlives us
+}
+- (id)initWithOwner:(MTSettingsController *)_owner;
+@end
+
+// Private UIKit API, so availability can't be checked at compile time.
+static UIColor *resetActionBackgroundColor(void) {
+    if ([UIColor respondsToSelector:@selector(tableCellGroupedBackgroundColor)]) {
+        return [UIColor tableCellGroupedBackgroundColor];
+    }
+    return [UIColor lightGrayColor];
+}
 
 @implementation MTSettingsController
 - (id)init {
@@ -22,7 +45,13 @@ NSUserDefaults *defaults;
     self.title = @"Settings";
     self.navigationController.navigationBar.prefersLargeTitles = YES;
 
-    self.table = [[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped] autorelease];
+    // Settings apply as they're changed, so this only needs to dismiss. It is
+    // required on iOS 12, where modals are fullscreen with no swipe-to-dismiss.
+    UIBarButtonItem *done = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemDone target:self action:@selector(dismissSettings)];
+    self.navigationItem.rightBarButtonItem = done;
+    [done release];
+
+    self.table = [[[UITableView alloc] initWithFrame:CGRectZero style:MTGroupedTableViewStyle()] autorelease];
     self.table.translatesAutoresizingMaskIntoConstraints = NO;
 	self.table.delegate = self;
     self.table.dataSource = self;
@@ -55,8 +84,11 @@ NSUserDefaults *defaults;
 	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellIdentifier];
 
 	if (!cell) {
-		cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier] autorelease];
+		cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:CellIdentifier] autorelease];
 	}
+	// reused cells keep the previous row's accessory, so clear both forms
+	cell.accessoryView = nil;
+	cell.accessoryType = UITableViewCellAccessoryNone;
 
     NSString *title = nil;
     NSString *subtitle = nil;
@@ -78,11 +110,7 @@ NSUserDefaults *defaults;
             title = @"Select Font";
             subtitle = [defaults objectForKey:@"fontName"] ?: @"Courier";
             
-            UIImageView *accessoryImage = [[[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)] autorelease];
-            accessoryImage.contentMode = UIViewContentModeScaleAspectFit;
-            accessoryImage.image = [UIImage systemImageNamed:@"chevron.right"];
-            accessoryImage.tintColor = [UIColor secondaryLabelColor];
-            cell.accessoryView = accessoryImage;
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         } else if (indexPath.row == 2) {
             title = @"Use Proportional Font";
             subtitle = @"Improves display of certain fonts";
@@ -96,7 +124,7 @@ NSUserDefaults *defaults;
         UIView *colorWell = [[[UIView alloc] initWithFrame:CGRectMake(0, 0, 30, 30)] autorelease];
         colorWell.layer.masksToBounds = YES;
         colorWell.layer.cornerRadius = 15;
-        colorWell.layer.borderColor = [UIColor secondaryLabelColor].CGColor;
+        colorWell.layer.borderColor = MTSecondaryLabelColor().CGColor;
         colorWell.layer.borderWidth = 2.0f;
 
         NSString *defaultColorValue = nil;
@@ -136,35 +164,34 @@ NSUserDefaults *defaults;
         title = @"View Source Code";
         subtitle = @"https://github.com/MTACS/MTerminal";
         
-        UIImageView *accessoryImage = [[[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)] autorelease];
-        accessoryImage.contentMode = UIViewContentModeScaleAspectFit;
-        accessoryImage.image = [UIImage systemImageNamed:@"link"];
-        accessoryImage.tintColor = [UIColor secondaryLabelColor];
-        cell.accessoryView = accessoryImage;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
 
-	UIListContentConfiguration *content = [cell defaultContentConfiguration];
-    [content setImage:nil];
-    [content setText:title];
-    [content setSecondaryText:subtitle];
-    [content.secondaryTextProperties setColor:[UIColor secondaryLabelColor]];
-    [content.secondaryTextProperties setFont:[UIFont systemFontOfSize:12]];
-    [cell setContentConfiguration:content];
+	cell.imageView.image = nil;
+	cell.textLabel.text = title;
+	cell.detailTextLabel.text = subtitle;
+	cell.detailTextLabel.textColor = MTSecondaryLabelColor();
+	cell.detailTextLabel.font = [UIFont systemFontOfSize:12];
 
 	return cell;
 }
-- (void)switchChanged:(UISwitch *)sender {
+// Settings are applied by round-tripping through the app delegate's URL handler.
+// Values are percent-encoded because font names may contain spaces, which would
+// make +[NSURL URLWithString:] return nil.
+- (void)sendSetting:(NSString *)key value:(NSString *)value {
+    NSString *encoded = [value stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]] ?: value;
     UIApplication *app = [UIApplication sharedApplication];
     MTAppDelegate *delegate = (MTAppDelegate *)[app delegate];
-    [delegate application:app handleOpenURL:[NSURL URLWithString:[NSString stringWithFormat:@"mterminal://?fontProportional=%@", (sender.on) ? @"YES" : @"NO"]]];
+    [delegate application:app handleOpenURL:[NSURL URLWithString:[NSString stringWithFormat:@"mterminal://?%@=%@", key, encoded]]];
 }
-- (void)colorPickerViewControllerDidSelectColor:(UIColorPickerViewController *)viewController {
+- (void)switchChanged:(UISwitch *)sender {
+    [self sendSetting:@"fontProportional" value:(sender.on) ? @"YES" : @"NO"];
+}
+- (void)colorPickerViewControllerDidSelectColor:(UIColorPickerViewController *)viewController API_AVAILABLE(ios(14.0)) {
     UIColor *selectedColor = viewController.selectedColor;
     NSString *colorHex = [self hexStringFromColor:selectedColor];
-    
-    UIApplication *app = [UIApplication sharedApplication];
-    MTAppDelegate *delegate = (MTAppDelegate *)[app delegate];
-    [delegate application:app handleOpenURL:[NSURL URLWithString:[NSString stringWithFormat:@"mterminal://?%@=%@", _selectedColorKey, colorHex]]];
+
+    [self sendSetting:_selectedColorKey value:colorHex];
     _selectedColorKey = nil;
     [_table reloadData];
 }
@@ -185,13 +212,49 @@ NSUserDefaults *defaults;
     return [UIColor colorWithRed:((rgbValue & 0xFF0000) >> 16)/255.0 green:((rgbValue & 0xFF00) >> 8)/255.0 blue:(rgbValue & 0xFF)/255.0 alpha:1.0];
 }
 - (void)presentColorPicker {
-    UIColorPickerViewController *colorPickerController = [[UIColorPickerViewController alloc] init];
-    colorPickerController.delegate = self;
-    colorPickerController.supportsAlpha = YES;
-    colorPickerController.modalPresentationStyle = UIModalPresentationPageSheet;
-    colorPickerController.modalInPresentation = YES;
-    [self presentViewController:colorPickerController animated:YES completion:nil];
-    [colorPickerController release];
+    if (@available(iOS 14.0, *)) {
+        UIColorPickerViewController *colorPickerController = [[UIColorPickerViewController alloc] init];
+        colorPickerController.delegate = (id)self;
+        colorPickerController.supportsAlpha = YES;
+        colorPickerController.modalPresentationStyle = UIModalPresentationPageSheet;
+        colorPickerController.modalInPresentation = YES;
+        [self presentViewController:colorPickerController animated:YES completion:nil];
+        [colorPickerController release];
+        return;
+    }
+    [self presentHexColorEntry];
+}
+// Fallback for iOS < 14, which has no UIColorPickerViewController. Colours are
+// stored as hex strings anyway, so ask for one directly.
+- (void)presentHexColorEntry {
+    NSString *key = _selectedColorKey;
+    NSString *current = [defaults objectForKey:key] ?: @"FFFFFF";
+    // __block so the block doesn't retain the alert that owns it
+    __block UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Color"
+                                                                          message:@"Enter a hex colour, for example 1B1B1B"
+                                                                   preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
+        field.text = current;
+        field.autocapitalizationType = UITextAutocapitalizationTypeAllCharacters;
+        field.autocorrectionType = UITextAutocorrectionTypeNo;
+        field.keyboardType = UIKeyboardTypeASCIICapable;
+    }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        _selectedColorKey = nil;
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Set" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        NSString *entered = alert.textFields.firstObject.text ?: @"";
+        NSString *hex = [[entered stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+        if ([hex hasPrefix:@"#"]) {
+            hex = [hex substringFromIndex:1];
+        }
+        _selectedColorKey = nil;
+        if (hex.length == 6 && [hex rangeOfCharacterFromSet:[[NSCharacterSet characterSetWithCharactersInString:@"0123456789ABCDEF"] invertedSet]].location == NSNotFound) {
+            [self sendSetting:key value:hex];
+        }
+        [_table reloadData];
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
 	UISwipeActionsConfiguration *swipeActions;
@@ -202,14 +265,12 @@ NSUserDefaults *defaults;
                 [defaults synchronize];
                 [_table reloadData];
 
-                UIApplication *app = [UIApplication sharedApplication];
-                MTAppDelegate *delegate = (MTAppDelegate *)[app delegate];
-                [delegate application:app handleOpenURL:[NSURL URLWithString:@"mterminal://?fontSize=10"]];
+                [self sendSetting:@"fontSize" value:@"10"];
                 completionHandler(YES);
             }];
 
-            resetAction.backgroundColor = [UIColor tableCellGroupedBackgroundColor];
-            resetAction.image = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"];
+            resetAction.backgroundColor = resetActionBackgroundColor();
+            resetAction.image = MTSystemImage(@"arrow.triangle.2.circlepath");
             resetAction.title = @"Reset";
 
             swipeActions = [UISwipeActionsConfiguration configurationWithActions:@[resetAction]];
@@ -247,14 +308,12 @@ NSUserDefaults *defaults;
             [defaults synchronize];
             [_table reloadData];
 
-            UIApplication *app = [UIApplication sharedApplication];
-            MTAppDelegate *delegate = (MTAppDelegate *)[app delegate];
-            [delegate application:app handleOpenURL:[NSURL URLWithString:[NSString stringWithFormat:@"mterminal://?%@=%@", colorKey, colorValue]]];
+            [self sendSetting:colorKey value:colorValue];
             completionHandler(YES);
         }];
 
-        resetAction.backgroundColor = [UIColor tableCellGroupedBackgroundColor];
-        resetAction.image = [UIImage systemImageNamed:@"arrow.triangle.2.circlepath"];
+        resetAction.backgroundColor = resetActionBackgroundColor();
+        resetAction.image = MTSystemImage(@"arrow.triangle.2.circlepath");
         resetAction.title = @"Reset";
 
         swipeActions = [UISwipeActionsConfiguration configurationWithActions:@[resetAction]];
@@ -306,10 +365,7 @@ NSUserDefaults *defaults;
 - (void)fontSizeChanged:(UIStepper *)stepper {
     [defaults setObject:[NSNumber numberWithInt:(int)stepper.value] forKey:@"fontSize"];
     [_table reloadData];
-    UIApplication *app = [UIApplication sharedApplication];
-    MTAppDelegate *delegate = (MTAppDelegate *)[app delegate];
-    NSString *fontString = [NSString stringWithFormat:@"mterminal://?fontSize=%d", (int)stepper.value]; 
-    [delegate application:app handleOpenURL:[NSURL URLWithString:fontString]];
+    [self sendSetting:@"fontSize" value:[NSString stringWithFormat:@"%d", (int)stepper.value]];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     NSString *title = nil;
@@ -324,7 +380,7 @@ NSUserDefaults *defaults;
 }
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
 	UILabel *titleLabel = [[[UILabel alloc] initWithFrame:CGRectMake(0, 0, 200, 30)] autorelease];
-	titleLabel.textColor = [UIColor secondaryLabelColor];
+	titleLabel.textColor = MTSecondaryLabelColor();
 	titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
 	titleLabel.text = [self tableView:tableView titleForHeaderInSection:section];
 	return titleLabel;
@@ -341,7 +397,7 @@ NSUserDefaults *defaults;
 		titleLabel.text = @"Tap color cell to pick color. Swipe left to reset";
         titleLabel.font = [UIFont systemFontOfSize:14];
         titleLabel.numberOfLines = 2;
-		titleLabel.textColor = [UIColor secondaryLabelColor];
+		titleLabel.textColor = MTSecondaryLabelColor();
 		titleLabel.textAlignment = NSTextAlignmentCenter;
 		return titleLabel;
 	}
@@ -354,23 +410,72 @@ NSUserDefaults *defaults;
 	return 0;
 }
 - (void)selectCustomFont {
-	UIFontPickerViewController *picker = [[UIFontPickerViewController alloc] init];
-	picker.delegate = self;
-	[self presentViewController:picker animated:YES completion:nil];
-	[picker release];
+	if (@available(iOS 13.0, *)) {
+		UIFontPickerViewController *picker = [[UIFontPickerViewController alloc] init];
+		picker.delegate = (id)self;
+		[self presentViewController:picker animated:YES completion:nil];
+		[picker release];
+		return;
+	}
+	MTFontListController *list = [[MTFontListController alloc] initWithOwner:self];
+	UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:list];
+	[list release];
+	[self presentViewController:nav animated:YES completion:nil];
+	[nav release];
 }
-- (void)fontPickerViewControllerDidPickFont:(UIFontPickerViewController *)viewController {
+- (void)fontPickerViewControllerDidPickFont:(UIFontPickerViewController *)viewController API_AVAILABLE(ios(13.0)) {
 	UIFontDescriptor *descriptor = viewController.selectedFontDescriptor;
 	if (descriptor.postscriptName != nil) {
-        UIApplication *app = [UIApplication sharedApplication];
-        MTAppDelegate *delegate = (MTAppDelegate *)[app delegate];
-        NSString *fontString = [NSString stringWithFormat:@"mterminal://?fontName=%@", descriptor.postscriptName]; 
-        [delegate application:app handleOpenURL:[NSURL URLWithString:fontString]];
-        [_table reloadData];
+        [self applyFontName:descriptor.postscriptName];
     }
+}
+- (void)dismissSettings {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (void)applyFontName:(NSString *)name {
+    [self sendSetting:@"fontName" value:name];
+    [_table reloadData];
 }
 - (void)dealloc {
     [_table release];
+    [super dealloc];
+}
+@end
+
+@implementation MTFontListController
+- (id)initWithOwner:(MTSettingsController *)_owner {
+    if ((self = [super initWithStyle:UITableViewStylePlain])) {
+        families = [[[UIFont familyNames] sortedArrayUsingSelector:@selector(caseInsensitiveCompare:)] retain];
+        owner = _owner;
+        self.title = @"Select Font";
+        UIBarButtonItem *cancel = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel target:self action:@selector(dismiss)];
+        self.navigationItem.leftBarButtonItem = cancel;
+        [cancel release];
+    }
+    return self;
+}
+- (void)dismiss {
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    return families.count;
+}
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"Font"];
+    if (!cell) {
+        cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"Font"] autorelease];
+    }
+    NSString *family = [families objectAtIndex:indexPath.row];
+    cell.textLabel.text = family;
+    cell.textLabel.font = [UIFont fontWithName:family size:17] ?: [UIFont systemFontOfSize:17];
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [owner applyFontName:[families objectAtIndex:indexPath.row]];
+    [self dismissViewControllerAnimated:YES completion:nil];
+}
+- (void)dealloc {
+    [families release];
     [super dealloc];
 }
 @end
