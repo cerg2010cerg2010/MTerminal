@@ -2,6 +2,10 @@ ARCHS = arm64 arm64e
 TARGET = iphone:clang:latest:14.0
 SYSROOT = $(THEOS)/sdks/iPhoneOS14.5.sdk
 INSTALL_TARGET_PROCESSES = MTerminal
+ADDITIONAL_LDFLAGS += -lroot
+ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
+ADDITIONAL_LDFLAGS += -lroothide
+endif
 
 include $(THEOS)/makefiles/common.mk
 

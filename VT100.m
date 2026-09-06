@@ -4,6 +4,7 @@
 #include <sys/event.h>
 #include <sys/ioctl.h>
 #include <util.h>
+#import <rootless.h>
 
 extern int proc_pidpath(pid_t, char *, uint32_t);
 
@@ -120,7 +121,7 @@ static void screen_line_release(CFAllocatorRef allocator, screen_line_t *line) {
         if (pid == -1) {
             raiseException(@"forkpty");
         } else if (pid == 0) {
-            if (execve("/var/jb/usr/bin/login", (char *[]){"login", "-fp", getlogin(), NULL}, (char *[]){"TERM=xterm-256color", "LANG=en_US.UTF-8", NULL}) == -1) raiseException(@"execve(login)");
+            if (execve(ROOT_PATH("/usr/bin/login"), (char *[]){"login", "-fp", getlogin(), NULL}, (char *[]){"TERM=xterm-256color", "LANG=en_US.UTF-8", NULL}) == -1) raiseException(@"execve(login)");
         } else {
             static int kqfd = -1;
             Boolean first = (kqfd == -1);
