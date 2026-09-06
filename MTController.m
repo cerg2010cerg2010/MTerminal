@@ -413,6 +413,8 @@ static NSString *getTitle(VT100 *terminal) {
     [allTerminals removeObjectAtIndex:activeIndex];
     NSUInteger count = allTerminals.count;
     if (count == 0) {
+        // the array held the only strong reference, so don't leave a dangling one
+        activeTerminal = nil;
         [[UIApplication sharedApplication] suspend];
     } else {
         if (activeIndex == count) {
@@ -576,7 +578,7 @@ static NSString *getTitle(VT100 *terminal) {
                 stcolor = stc;
                 stcspan = 1;
             }
-            if (ulcolor == stc) {
+            if (ulcolor == ulc) {
                 ulcspan++;
             } else {
                 if (ulcolor)
@@ -612,7 +614,8 @@ static NSString *getTitle(VT100 *terminal) {
             activeIndex--;
             break;
         case UISwipeGestureRecognizerDirectionLeft:
-            if (activeIndex == allTerminals.count - 1) {
+            // not `activeIndex == count - 1`: count is unsigned and may be 0
+            if (activeIndex + 1 >= allTerminals.count) {
                 return;
             }
             activeIndex++;
@@ -713,7 +716,6 @@ static NSString *getTitle(VT100 *terminal) {
                         }];
                     }]];
                     [self presentViewController:sheet animated:YES completion:nil];
-                    [sheet release];
                 } else {
                     [self closeWindow];
                 }
@@ -746,7 +748,6 @@ static NSString *getTitle(VT100 *terminal) {
                     }];
                 }]];
                 [self presentViewController:sheet animated:YES completion:nil];
-                [sheet release];
                 return;
             }
             case kTapZoneCenter:
@@ -760,7 +761,9 @@ static NSString *getTitle(VT100 *terminal) {
                                         selector:@selector(repeatTimerFired:)
                                         userInfo:[NSNumber numberWithInt:key]
                                          repeats:YES] retain];
-    } else if (gesture.state == UIGestureRecognizerStateEnded) {
+    } else if (gesture.state == UIGestureRecognizerStateEnded ||
+               gesture.state == UIGestureRecognizerStateCancelled ||
+               gesture.state == UIGestureRecognizerStateFailed) {
         if (!repeatTimer) {
             return;
         }
@@ -891,19 +894,19 @@ static NSString *getTitle(VT100 *terminal) {
     [UIView setAnimationsEnabled:YES];
 }
 - (UIView *)inputAccessoryView {
-    UIToolbar *toolbar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, [[UIScreen mainScreen] bounds].size.width, 50)];
+    UIToolbar *toolbar = [[[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, [[UIScreen mainScreen] bounds].size.width, 50)] autorelease];
     toolbar.translucent = NO;
     toolbar.barTintColor = [UIColor systemBackgroundColor];
 
-    UIBarButtonItem *leftItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.backward"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(left:)];
-    UIBarButtonItem *rightItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.forward"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(right:)];
-    UIBarButtonItem *upItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.up"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(up:)];
-    UIBarButtonItem *downItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.down"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(down:)];
-    UIBarButtonItem *tabItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.right.to.line"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(insertTab:)];
-	UIBarButtonItem *ctrlItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"chevron.up"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(toggleCtrlLock:)];
-	UIBarButtonItem *pasteItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"paperclip"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(paste:)];
-	UIBarButtonItem *settingsItem = [[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"gearshape"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(settings:)];
-	UIBarButtonItem *spaceItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil];
+    UIBarButtonItem *leftItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.backward"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(left:)] autorelease];
+    UIBarButtonItem *rightItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.forward"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(right:)] autorelease];
+    UIBarButtonItem *upItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.up"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(up:)] autorelease];
+    UIBarButtonItem *downItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.down"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(down:)] autorelease];
+    UIBarButtonItem *tabItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"arrow.right.to.line"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(insertTab:)] autorelease];
+	UIBarButtonItem *ctrlItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"chevron.up"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(toggleCtrlLock:)] autorelease];
+	UIBarButtonItem *pasteItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"paperclip"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(paste:)] autorelease];
+	UIBarButtonItem *settingsItem = [[[UIBarButtonItem alloc] initWithImage:[[UIImage systemImageNamed:@"gearshape"] imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate] style:UIBarButtonItemStylePlain target:self action:@selector(settings:)] autorelease];
+	UIBarButtonItem *spaceItem = [[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil] autorelease];
 
     toolbar.items = [NSArray arrayWithObjects:settingsItem, pasteItem, ctrlItem, tabItem, spaceItem, spaceItem, spaceItem, leftItem, rightItem, upItem, downItem, nil];
 
@@ -936,10 +939,15 @@ static NSString *getTitle(VT100 *terminal) {
 - (void)toggleCtrlLock:(UIBarButtonItem *)sender {
 	ctrlLock = !ctrlLock;
 }
-- (void)settings:(UIBarButtonItem *)sender {
+- (void)openSettings {
     MTSettingsController *settingsController = [[MTSettingsController alloc] init];
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:settingsController];
+    [settingsController release];
     [self presentViewController:navigationController animated:YES completion:nil];
+    [navigationController release];
+}
+- (void)settings:(UIBarButtonItem *)sender {
+    [self openSettings];
 }
 - (UIContextMenuConfiguration *)contextMenuInteraction:(UIContextMenuInteraction *)interaction configurationForMenuAtLocation:(CGPoint)location {
     UIContextMenuConfiguration *config = [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu* _Nullable(NSArray<UIMenuElement*>* _Nonnull suggestedActions) {
@@ -956,9 +964,9 @@ static NSString *getTitle(VT100 *terminal) {
     UITableView *tableView = (UITableView *)self.view;
 	UITableViewCell *cell = [tableView cellForRowAtIndexPath:[NSIndexPath indexPathForRow:0 inSection:0]];
 	
-	UIPreviewParameters *params = [[UIPreviewParameters alloc] init];
-    params.backgroundColor = [UIColor clearColor]; 
-    UITargetedPreview *preview = [[UITargetedPreview alloc] initWithView:cell.contentView parameters:params];
+	UIPreviewParameters *params = [[[UIPreviewParameters alloc] init] autorelease];
+    params.backgroundColor = [UIColor clearColor];
+    UITargetedPreview *preview = [[[UITargetedPreview alloc] initWithView:cell.contentView parameters:params] autorelease];
     return preview;
 }
 - (void)dealloc {

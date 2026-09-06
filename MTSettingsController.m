@@ -22,7 +22,7 @@ NSUserDefaults *defaults;
     self.title = @"Settings";
     self.navigationController.navigationBar.prefersLargeTitles = YES;
 
-    self.table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped];
+    self.table = [[[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStyleInsetGrouped] autorelease];
     self.table.translatesAutoresizingMaskIntoConstraints = NO;
 	self.table.delegate = self;
     self.table.dataSource = self;
@@ -55,11 +55,11 @@ NSUserDefaults *defaults;
 	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellIdentifier];
 
 	if (!cell) {
-		cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier];
+		cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier] autorelease];
 	}
 
-    NSString *title;
-    NSString *subtitle;
+    NSString *title = nil;
+    NSString *subtitle = nil;
 
 	NSInteger fontSize = [[defaults objectForKey:@"fontSize"] integerValue] ?: 10;
 		
@@ -68,7 +68,7 @@ NSUserDefaults *defaults;
             title = [NSString stringWithFormat:@"Font Size: %ld", fontSize];
             subtitle = @"Swipe left to reset";
             
-            UIStepper *fontStepper = [[UIStepper alloc] initWithFrame:CGRectMake(0, 0, 60, 40)];
+            UIStepper *fontStepper = [[[UIStepper alloc] initWithFrame:CGRectMake(0, 0, 60, 40)] autorelease];
             fontStepper.value = fontSize;
             fontStepper.maximumValue = 80;
             fontStepper.minimumValue = 10;
@@ -78,7 +78,7 @@ NSUserDefaults *defaults;
             title = @"Select Font";
             subtitle = [defaults objectForKey:@"fontName"] ?: @"Courier";
             
-            UIImageView *accessoryImage = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)];
+            UIImageView *accessoryImage = [[[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)] autorelease];
             accessoryImage.contentMode = UIViewContentModeScaleAspectFit;
             accessoryImage.image = [UIImage systemImageNamed:@"chevron.right"];
             accessoryImage.tintColor = [UIColor secondaryLabelColor];
@@ -86,14 +86,14 @@ NSUserDefaults *defaults;
         } else if (indexPath.row == 2) {
             title = @"Use Proportional Font";
             subtitle = @"Improves display of certain fonts";
-            UISwitch *switchView = [[UISwitch alloc] initWithFrame:CGRectZero];
+            UISwitch *switchView = [[[UISwitch alloc] initWithFrame:CGRectZero] autorelease];
             cell.accessoryView = switchView;
             [switchView setOnTintColor:[UIColor systemBlueColor]];
             [switchView setOn:([defaults objectForKey:@"fontProportional"]) ? [[defaults objectForKey:@"fontProportional"] boolValue] : NO animated:NO];
             [switchView addTarget:self action:@selector(switchChanged:) forControlEvents:UIControlEventValueChanged];
         }
     } else if (indexPath.section == 1) {
-        UIView *colorWell = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 30, 30)];
+        UIView *colorWell = [[[UIView alloc] initWithFrame:CGRectMake(0, 0, 30, 30)] autorelease];
         colorWell.layer.masksToBounds = YES;
         colorWell.layer.cornerRadius = 15;
         colorWell.layer.borderColor = [UIColor secondaryLabelColor].CGColor;
@@ -136,7 +136,7 @@ NSUserDefaults *defaults;
         title = @"View Source Code";
         subtitle = @"https://github.com/MTACS/MTerminal";
         
-        UIImageView *accessoryImage = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)];
+        UIImageView *accessoryImage = [[[UIImageView alloc] initWithFrame:CGRectMake(0, 0, 20, 20)] autorelease];
         accessoryImage.contentMode = UIViewContentModeScaleAspectFit;
         accessoryImage.image = [UIImage systemImageNamed:@"link"];
         accessoryImage.tintColor = [UIColor secondaryLabelColor];
@@ -170,7 +170,7 @@ NSUserDefaults *defaults;
 }
 - (NSDictionary *)dictionaryForColor:(UIColor *)color {
     const CGFloat *components = CGColorGetComponents(color.CGColor);
-    NSMutableDictionary *colorDict = [NSMutableDictionary new];
+    NSMutableDictionary *colorDict = [NSMutableDictionary dictionary];
     [colorDict setObject:[NSNumber numberWithFloat:components[0]] forKey:@"red"];
     [colorDict setObject:[NSNumber numberWithFloat:components[1]] forKey:@"green"];
     [colorDict setObject:[NSNumber numberWithFloat:components[2]] forKey:@"blue"];
@@ -191,6 +191,7 @@ NSUserDefaults *defaults;
     colorPickerController.modalPresentationStyle = UIModalPresentationPageSheet;
     colorPickerController.modalInPresentation = YES;
     [self presentViewController:colorPickerController animated:YES completion:nil];
+    [colorPickerController release];
 }
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
 	UISwipeActionsConfiguration *swipeActions;
@@ -311,7 +312,7 @@ NSUserDefaults *defaults;
     [delegate application:app handleOpenURL:[NSURL URLWithString:fontString]];
 }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    NSString *title;
+    NSString *title = nil;
     if (section == 0) {
         title = @"Terminal Font";
     } else if (section == 1) {
@@ -322,7 +323,7 @@ NSUserDefaults *defaults;
     return title;
 }
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
-	UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 200, 30)];
+	UILabel *titleLabel = [[[UILabel alloc] initWithFrame:CGRectMake(0, 0, 200, 30)] autorelease];
 	titleLabel.textColor = [UIColor secondaryLabelColor];
 	titleLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
 	titleLabel.text = [self tableView:tableView titleForHeaderInSection:section];
@@ -336,7 +337,7 @@ NSUserDefaults *defaults;
 }
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
 	if (section == 1) {
-		UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(([UIScreen mainScreen].bounds.size.width / 2) - 100, 0, 200, 100)];
+		UILabel *titleLabel = [[[UILabel alloc] initWithFrame:CGRectMake(([UIScreen mainScreen].bounds.size.width / 2) - 100, 0, 200, 100)] autorelease];
 		titleLabel.text = @"Tap color cell to pick color. Swipe left to reset";
         titleLabel.font = [UIFont systemFontOfSize:14];
         titleLabel.numberOfLines = 2;
@@ -356,6 +357,7 @@ NSUserDefaults *defaults;
 	UIFontPickerViewController *picker = [[UIFontPickerViewController alloc] init];
 	picker.delegate = self;
 	[self presentViewController:picker animated:YES completion:nil];
+	[picker release];
 }
 - (void)fontPickerViewControllerDidPickFont:(UIFontPickerViewController *)viewController {
 	UIFontDescriptor *descriptor = viewController.selectedFontDescriptor;
@@ -366,5 +368,9 @@ NSUserDefaults *defaults;
         [delegate application:app handleOpenURL:[NSURL URLWithString:fontString]];
         [_table reloadData];
     }
+}
+- (void)dealloc {
+    [_table release];
+    [super dealloc];
 }
 @end
