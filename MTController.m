@@ -77,6 +77,14 @@ static enum {
     : (origin.x < margin)               ? kTapZoneLeft
     : kTapZoneCenter;
 }
+// Action sheets are presented as popovers on iPad, which throws unless an
+// anchor is set.
+static void anchorSheet(UIAlertController *sheet, UIView *view, CGPoint origin) {
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    popover.sourceView = view;
+    popover.sourceRect = (CGRect){.origin = origin};
+    popover.permittedArrowDirections = UIPopoverArrowDirectionAny;
+}
 // SF Symbols need iOS 13; on older systems fall back to a titled button.
 static UIBarButtonItem *toolbarItem(NSString *symbol, NSString *title, id target, SEL action) {
     UIImage *image = MTSystemImage(symbol);
@@ -136,6 +144,7 @@ static NSString *getTitle(VT100 *terminal) {
 @interface MTController ()
 - (void)updateCtrlButton;
 - (void)toggleCtrlSticky:(UILongPressGestureRecognizer *)gesture;
+- (void)reflow;
 @end
 
 @implementation MTController
@@ -740,23 +749,15 @@ static NSString *getTitle(VT100 *terminal) {
                     [sheet addAction:[UIAlertAction
                                       actionWithTitle:@"Cancel"
                                       style:UIAlertActionStyleCancel
-                                      handler:^(UIAlertAction *action) {
-                        [self dismissViewControllerAnimated:YES
-                                                 completion:^{
-                        }];
-                    }]];
-                    
+                                      handler:nil]];
                     [sheet
                      addAction:[UIAlertAction
                                 actionWithTitle:@"Force Quit"
                                 style:UIAlertActionStyleDestructive
                                 handler:^(UIAlertAction *action) {
-                        [self
-                         dismissViewControllerAnimated:YES
-                         completion:^{
-                            [self closeWindow];
-                        }];
+                        [self closeWindow];
                     }]];
+                    anchorSheet(sheet, gesture.view, origin);
                     [self presentViewController:sheet animated:YES completion:nil];
                 } else {
                     [self closeWindow];
@@ -764,37 +765,40 @@ static NSString *getTitle(VT100 *terminal) {
                 return;
             case kTapZoneBottomRight: {
                 UIAlertController *sheet = [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-                [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
-                    [self dismissViewControllerAnimated:YES completion:^{
-                    }];
-                }]];
+                [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
                 int index2 = -1;
                 int index;
                 for (VT100 *terminal in allTerminals) {
                     index = index2 + 1;
                     [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@%d: %@", (terminal == activeTerminal) ? @"\u2713 " : terminal.bellDeferred ? @"\u2407 " : @"", terminal.processID, getTitle(terminal)] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-                        [self dismissViewControllerAnimated:YES completion:^{
-                            activeIndex = index;
-                            activeTerminal = (index < allTerminals.count) ? [allTerminals objectAtIndex:index] : nil;
-                            [self screenSizeDidChange];
-                        }];
+                        activeIndex = index;
+                        activeTerminal = [allTerminals objectAtIndex:index];
+                        [self screenSizeDidChange];
                     }]];
                     index2 = index;
                 }
                 index = index2 + 1;
                 [sheet addAction:[UIAlertAction actionWithTitle:@"(+)" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-                    [self dismissViewControllerAnimated:YES completion:^{
-                        activeIndex = index;
-                        activeTerminal = (index < allTerminals.count) ? [allTerminals objectAtIndex:index] : nil;
-                        [self screenSizeDidChange];
-                    }];
+                    activeIndex = index;
+                    activeTerminal = nil; // past the end: screenSizeDidChange spawns a new one
+                    [self screenSizeDidChange];
                 }]];
+                anchorSheet(sheet, gesture.view, origin);
                 [self presentViewController:sheet animated:YES completion:nil];
                 return;
             }
-            case kTapZoneCenter:
+            case kTapZoneCenter: {
                 ctrlLock = NO; // the held modifier is only cleared from the button
                 [self updateCtrlButton];
+                UIView *view = gesture.view;
+                if (!self.isFirstResponder && !view.isFirstResponder && ![view becomeFirstResponder]) {
+                    return;
+                }
+                UIMenuController *menu = [UIMenuController sharedMenuController];
+                [menu setTargetRect:(CGRect){.origin = origin} inView:view];
+                [menu setMenuVisible:YES animated:YES];
+                return;
+            }
             default:
                 return;
         }
@@ -817,6 +821,18 @@ static NSString *getTitle(VT100 *terminal) {
 }
 - (void)repeatTimerFired:(NSTimer *)timer {
     [activeTerminal sendKey:[timer.userInfo intValue]];
+}
+- (BOOL)canPerformAction:(SEL)action withSender:(id)sender {
+    if (action == @selector(select:)) {
+        return activeTerminal != nil;
+    }
+    if (action == @selector(paste:)) {
+        return YES;
+    }
+    return [super canPerformAction:action withSender:sender];
+}
+- (void)select:(id)sender {
+    [self reflow];
 }
 - (void)reflow {
     NSMutableString *text = [NSMutableString string];

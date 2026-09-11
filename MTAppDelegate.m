@@ -4,6 +4,8 @@
 @implementation MTAppDelegate
 - (void)applicationDidFinishLaunching:(UIApplication *)application {
     window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    // stands in for the all-black LaunchScreen storyboard, which needed ibtool
+    window.backgroundColor = [UIColor blackColor];
     window.rootViewController = controller = [[MTController alloc] init];
     [window makeKeyAndVisible];
 }

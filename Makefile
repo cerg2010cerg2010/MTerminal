@@ -4,7 +4,7 @@ DEPLOYMENT_TARGET = 12.0
 # iOS < 14, and arm64e devices run the arm64 slice fine.
 ARCHS = arm64
 TARGET = iphone:clang:latest:$(DEPLOYMENT_TARGET)
-SYSROOT = $(THEOS)/sdks/iPhoneOS14.5.sdk
+#SYSROOT = $(THEOS)/sdks/iPhoneOS14.5.sdk
 INSTALL_TARGET_PROCESSES = MTerminal
 
 # Resources/ is copied into the bundle verbatim. Resources/control is a leftover
@@ -20,19 +20,11 @@ MTerminal_FILES = main.m MTAppDelegate.m MTController.m MTKBAvoiding.m \
 	MTRowView.m MTScratchpad.m MTSettingsController.m VT100.m
 MTerminal_FRAMEWORKS = UIKit CoreGraphics CoreText AudioToolbox IOKit
 MTerminal_CFLAGS = -Wno-deprecated-declarations
+# Theos points -resource-dir at the Swift toolchain's copy, which on Procursus
+# holds only include/ — so ld never finds libclang_rt.ios.a and the
+# __isPlatformVersionAtLeast that @available expands to goes undefined. Instance
+# LDFLAGS are emitted after Theos', and clang honours the last -resource-dir.
+MTerminal_LDFLAGS = -resource-dir $(shell $(TARGET_CC) -print-resource-dir)
 MTerminal_CODESIGN_FLAGS = -Sentitlements.xml
 
 include $(THEOS_MAKE_PATH)/application.mk
-
-# Theos has no rule for Interface Builder documents, and UIKit can only load a
-# compiled .storyboardc. Resources/Info.plist points UILaunchStoryboardName at
-# this file, so compile it into the staged bundle by hand.
-IBTOOL ?= xcrun ibtool
-
-after-stage::
-	$(ECHO_NOTHING)$(IBTOOL) --errors --warnings --notices \
-		--output-format human-readable-text \
-		--target-device iphone --target-device ipad \
-		--minimum-deployment-target $(DEPLOYMENT_TARGET) \
-		--compile "$(THEOS_STAGING_DIR)/Applications/$(APPLICATION_NAME).app/LaunchScreen.storyboardc" \
-		LaunchScreen.storyboard$(ECHO_END)
